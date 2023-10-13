@@ -88,28 +88,24 @@ def attention(query, key, value, mask=None, dropout=None):
         attn_weights: torch.tensor of size (N, Lq, Lk)
     
     """
-    
-    # Get the dimension of the key vectors
     d_k = query.size(-1)
-    
-    # Compute the dot product of query and key
     scores = torch.matmul(query, key.transpose(-2, -1)) / math.sqrt(d_k)
     
-    # Apply the mask if provided
     if mask is not None:
+        # If mask is (N, Lk), reshape it to (N, 1, Lk) for broadcasting
+        if mask.dim() == 2:
+            mask = mask.unsqueeze(1)
         scores = scores.masked_fill(mask == 0, -1e9)
     
-    # Apply softmax to get attention weights
     attn_weights = torch.nn.functional.softmax(scores, dim=-1)
     
-    # Apply dropout if provided
     if dropout is not None:
         attn_weights = dropout(attn_weights)
     
-    # Compute the weighted sum using attention weights
-    attn_out = torch.matmul(attn_weights, value)
     
+    attn_out = torch.matmul(attn_weights, value)
     return attn_out, attn_weights
+
     
     #raise NotImplementedError
 
@@ -154,22 +150,22 @@ class MultiHeadedAttention(nn.Module):
         ### YOUR CODE GOES HERE ########
         ################################
         ################################
-        n_batches, Lq = query.size(0), query.size(1)
-        Lk = key.size(1)
+        query_batch = query.size(0)
+        query_size = query.size(1)
+        key_size = key.size(1)
 
-        # Apply linear transformations to queries, keys, and values
-        W_q, W_k, W_v = self.linears[:3]
-        query = W_q(query).view(n_batches, Lq, self.h, self.d_k).transpose(1, 2)  # (N, h, Lq, d_k)
-        key = W_k(key).view(n_batches, Lk, self.h, self.d_k).transpose(1, 2)
-        value = W_v(value).view(n_batches, Lk, self.h, self.d_k).transpose(1, 2)
+        Q, K, V = self.linears[:3]
+        query_T = Q(query).view(query_batch, query_size, self.h, self.d_k).transpose(1, 2)
+        key_T = K(key).view(query_batch, key_size, self.h, self.d_k).transpose(1, 2) 
+        value_T = V(value).view(query_batch, key_size, self.h, self.d_k).transpose(1, 2)
 
-        # Compute attention, output size (N, h, Lq, d_k), attn_weights size (N, h, Lq, Lk)
-        attn_out, self.attn = self.attention(query, key, value, mask=mask, dropout=self.dropout)
+        x, self.attn = attention(query_T, key_T, value_T, mask=mask, dropout=self.dropout) 
 
-        # Concatenate the heads and apply the final linear layer
-        attn_out = attn_out.transpose(1, 2).contiguous().view(n_batches, Lq, -1)  # (N, Lq, d_model)
-        attn_out = self.linears[-1](attn_out)
-
+        x_transpose = x.transpose(1,2)       
+        x_view = x_transpose.contiguous().view(query_batch, query_size,-1)
+        
+        attn_out=self.linears[-1](x_view)
+    
         return attn_out
         
         #raise NotImplementedError
